@@ -1,0 +1,15 @@
+def handle_packet(self, recv: switchyard.llnetbase.ReceivedPacket):
+        timestamp, ifaceName, packet = recv
+        # TODO: your logic here
+        arp = packet.get_header(recv)
+        
+        target = None
+        for i in self.net.interfaces():
+            if i.ipaddr == arp.targetprotoaddr :
+                target = i
+                #this is a arp.reply
+        if target!=None :#we get a arp_packet,so there must be a interface keeping the information,so we don;t need to code else
+            if arp.operation == self.net.ArpOperation.Request:
+                #this is a arp_request,so we need to reply
+                arp_reply=self.net.create_ip_arp_reply( target.ethaddr,arp.senderhwaddr,target.ipaddr, arp.senderprotoaddr)
+                self.net.send_packet(recv.dev,arp_reply)

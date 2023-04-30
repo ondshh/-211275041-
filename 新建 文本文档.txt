@@ -1,15 +1,81 @@
-def handle_packet(self, recv: switchyard.llnetbase.ReceivedPacket):
+#!/usr/bin/env python3
+
+'''
+Basic IPv4 router (static routing) in Python.
+'''
+
+import time
+import switchyard
+from switchyard.lib.userlib import *
+table={}
+
+class Router(object):
+    def __init__(self, net: switchyard.llnetbase.LLNetBase):
+        self.net = net
+        # other initialization stuff here
+    def handle_packet(self, recv: switchyard.llnetbase.ReceivedPacket):
         timestamp, ifaceName, packet = recv
         # TODO: your logic here
         arp = packet.get_header(recv)
-        
+        print("get a packet ")
         target = None
         for i in self.net.interfaces():
             if i.ipaddr == arp.targetprotoaddr :
                 target = i
+                print("find a intf is same as ")
                 #this is a arp.reply
         if target!=None :#we get a arp_packet,so there must be a interface keeping the information,so we don;t need to code else
+            print("get in the fist")
             if arp.operation == self.net.ArpOperation.Request:
                 #this is a arp_request,so we need to reply
+                print("get in the second")
                 arp_reply=self.net.create_ip_arp_reply( target.ethaddr,arp.senderhwaddr,target.ipaddr, arp.senderprotoaddr)
                 self.net.send_packet(recv.dev,arp_reply)
+                print("send the packet to the dst")
+'''
+    def handle_packet(self, recv: switchyard.llnetbase.ReceivedPacket):
+        timestamp, ifaceName, packet = recv
+        # TODO: your logic here
+        all_intf = self.net.interfaces()
+        arp = packet.get_header(Arp)
+        if arp:
+            print("Receive a packet of Arp")
+            for intf in all_intf:
+                if arp.targetprotoaddr == intf.ipaddr:
+                    print("Has a intf == arp tdst ip")
+                    packet = create_ip_arp_reply(intf.ethaddr,arp.senderhwaddr,arp.targetprotoaddr,arp.senderprotoaddr)
+                    self.net.send_packet(intf.name,packet)
+                    log_info (f"Send packet {packet} to {intf.name}")
+
+
+        
+'''
+    ...
+    def start(self):
+        '''A running daemon of the router.
+        Receive packets until the end of time.
+        '''
+        while True:
+            try:
+                recv = self.net.recv_packet(timeout=1.0)
+            except NoPackets:
+                continue
+            except Shutdown:
+                break
+
+            self.handle_packet(recv)
+
+        self.stop()
+
+    def stop(self):
+        self.net.shutdown()
+
+
+def main(net):
+    '''
+    Main entry point for router.  Just create Router
+    object and get it going.
+    '''
+    router = Router(net)
+    router.start()
+

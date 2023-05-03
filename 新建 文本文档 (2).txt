@@ -1,0 +1,141 @@
+import time
+import switchyard
+from switchyard.lib.userlib import *
+import netifaces
+import time
+
+
+class Router(object):
+    def __init__(self, net: switchyard.llnetbase.LLNetBase):
+        self.net = net
+        self.ArpTable = {}
+        self.ArpNum=1
+        self.ipTable = {}
+        # other initialization stuff here
+
+    def Form_print(self):
+        if self.ArpTable:
+            print("Table ID: {}".format(self.ArpNum))
+            self.ArpNum+=1
+            print("#"+"-"*11+"This is a ARP Table"+"-"*10+"#")
+            print("#"+"*"*40+"#")
+            print("#"+"-"*7+"IP"+"-"*21+"Mac"+"-"*7+"#")
+            print("#"+"*"*40+"#")
+
+            for ip,mac in self.ArpTable.items():
+                print("#"+str(ip).rjust(20,"-")+"|"+str(mac).rjust(19,"-")+"#")
+                print("#"+"*"*40+"#")    
+    def handle_packet(self, recv: switchyard.llnetbase.ReceivedPacket):
+        timestamp, ifaceName, packet = recv
+        # TODO: your logic here
+
+        arp = packet.get_header(Arp)
+        if arp:
+            target = None
+            for i in self.net.interfaces():
+                if i.ipaddr == arp.targetprotoaddr :
+                    target = i
+            if target!=None :#we get a arp_packet,so there must be a interface keeping the information,so we don;t need to code else
+                #this is a arp_request,so we need to reply
+                if arp.senderhwaddr != "00:00:00:00:00:00":
+                    if arp.operation == 1:##arp request:
+                        arp_reply=create_ip_arp_reply( target.ethaddr,arp.senderhwaddr,arp.targetprotoaddr, arp.senderprotoaddr)
+                        self.net.send_packet(target.name,arp_reply)
+                        #elif arp.operation == 2:#arp reply
+                        self.ArpTable[arp.senderprotoaddr] = arp.senderhwaddr
+                
+    def handle_ippacket(self,recv:switchyard.llnetbase.ReceivedPacket):
+        timestamp, ifaceName, packet = recv
+        arp = packet.get_header(Arp)
+        for i in self.net.interfaces():
+            ipaddr = str(i.ipaddr).replace('"', '').replace("'", '')
+            netmask=str(i.netmask).replace('"', '').replace("'", '')
+            if ipaddr in self.ipTable:       
+                temp1 = ipaddr+'/'+self.ipTable[ipaddr][0]
+                temp2 = ipaddr+'/'+netmask
+                
+                if temp1 != temp2:
+                    netaddr1=IPv4Network(temp1)
+                    netaddr2=IPv4Network(temp2)
+                    if netaddr1.prefixlen<netaddr2.prefixlen :
+                        self.ipTable[ipaddr]=[netmask,"0.0.0.0",i.name]
+            else:    
+                self.ipTable[ipaddr]=[netmask,"0.0.0.0",i.name]
+        print(self.ipTable)
+        with open("/home/tipsy/Desktop/lab4/forwarding_table.txt", 'r') as file:
+            for line in file:
+                words = line.split()
+                network_address = words[0]
+                subnet_mask = words[1]
+                next_hop_adress = words[2]
+                interface = words[3]
+            if network_address in self.ipTable:
+                temp1 = network_address+"/"+self.ipTable[network_address][0]
+                temp2 = network_address+'/'+subnet_mask
+                if temp1 != temp2:
+                    netaddr1=IPv4Network(temp1)
+                    netaddr2=IPv4Network(temp2)
+                    if netaddr1.prefixlen<netaddr2.prefixlen :
+                        self.ipTable[ipaddr]=[netmask,next_hop_adress,i.name]
+            else:
+                self.ipTable[network_address]=[subnet_mask,next_hop_adress,interface]
+
+                
+        if arp:
+            if arp.targetprotoaddr in self.ipTable:
+                #then do the forward
+                target = None
+                for i in self.net.interfaces():
+                    if i.ipaddr == arp.targetprotoaddr :
+                        target = i
+                        break
+                if target!=None :#target in our interfaces
+                    print("target in our interfaces,we drop it")
+                else :
+                    if arp.operation == 2:
+                        if arp.targethwaddr!="00:00:00:00:00:00" and arp.targethwaddr not in self.net.interfaces():
+                            print("we drop it")
+                        else :
+                            answer=create_ip_arp_reply(self.mac_list[index], arp.senderhwaddr, self.ip_list[index],arp.senderprotoaddr)
+                            arp_reply=create_ip_arp_reply( target.ethaddr,arp.senderhwaddr,arp.targetprotoaddr, arp.senderprotoaddr)
+                            self.net.send_packet(target.name,arp_reply)
+            else :
+                print("there isn't match item in packet,we drop it")
+
+
+
+
+
+
+
+
+
+    def start(self):
+        '''A running daemon of the router.
+        Receive packets until the end of time.
+        '''
+        while True:
+            try:
+                recv = self.net.recv_packet(timeout=1.0)
+            except NoPackets:
+                continue
+            except Shutdown:
+                break
+            self.handle_ippacket(recv)
+            self.handle_packet(recv)
+            self.Form_print()
+
+        self.stop()
+
+    def stop(self):
+        self.net.shutdown()
+
+
+def main(net):
+    '''
+    Main entry point for router.  Just create Router
+    object and get it going.
+    '''
+    router = Router(net)
+    router.start()
+    
